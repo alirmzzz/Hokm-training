@@ -5,7 +5,15 @@ const suits = [
   {id:"C", fa:"گشنیز", sym:"♣", red:false},
 ];
 const ranks = ["A","K","Q","J","10","9","8","7","6","5","4","3","2"];
-const players = ["تو","حریف راست","حریف روبه‌رو","یار / چپ"];
+
+// چینش اصلاح‌شده طبق قانون حکم:
+// بالا: یار من، پایین: من، چپ: حریف چپ، راست: حریف راست
+const seats = [
+  {key:"me", fa:"من", className:"me-card"},
+  {key:"right", fa:"حریف راست", className:"right-card"},
+  {key:"partner", fa:"یار من", className:"partner-card"},
+  {key:"left", fa:"حریف چپ", className:"left-card"},
+];
 
 let deck=[], trump=null, round=1, score=0, history=[], currentTrick=[];
 
@@ -27,27 +35,30 @@ function start(){
   deck=shuffle(makeDeck());
   trump=suits[Math.floor(Math.random()*suits.length)];
   round=1; score=0; history=[]; currentTrick=[];
-  nextRound(true);
+  nextRound();
 }
 
-function nextRound(first=false){
+function nextRound(){
   if(round>5){ endGame(); return; }
   currentTrick=[];
-  let leadSuit = suits[Math.floor(Math.random()*suits.length)];
-  let forcedVoidPlayer = Math.random()<0.45 ? Math.floor(Math.random()*4) : -1;
 
+  const leadSuit = suits[Math.floor(Math.random()*suits.length)];
+  const forcedVoidSeat = Math.random()<0.45 ? Math.floor(Math.random()*4) : -1;
+
+  // شروع تمرینی از «من» است و گردش به راست، یار، چپ ادامه پیدا می‌کند.
   for(let i=0;i<4;i++){
     let card;
-    if(i===0 || i!==forcedVoidPlayer){
-      const candidates=deck.filter(c=>c.suit===leadSuit.id);
-      card = candidates.length ? candidates[0] : deck[0];
-    } else {
-      const candidates=deck.filter(c=>c.suit!==leadSuit.id);
-      card = candidates.length ? candidates[0] : deck[0];
+    if(i!==forcedVoidSeat){
+      const sameSuit=deck.filter(c=>c.suit===leadSuit.id);
+      card=sameSuit.length?sameSuit[0]:deck[0];
+    }else{
+      const otherSuit=deck.filter(c=>c.suit!==leadSuit.id);
+      card=otherSuit.length?otherSuit[0]:deck[0];
     }
     deck.splice(deck.indexOf(card),1);
-    currentTrick.push({...card, player:players[i]});
+    currentTrick.push({...card, seat:seats[i]});
   }
+
   history.push(...currentTrick);
   render();
 }
@@ -58,8 +69,8 @@ function render(){
   $("scoreText").textContent = score;
 
   $("cards").innerHTML = currentTrick.map(c => `
-    <div class="card ${c.red?'red':''}">
-      <small>${c.player}</small>
+    <div class="card ${c.red?'red':''} ${c.seat.className}">
+      <small class="role">${c.seat.fa}</small>
       <span>${cardText(c)}</span>
       <small>${c.suitFa}</small>
     </div>
@@ -76,63 +87,63 @@ function getTruth(){
   const trumpCount = history.filter(c=>c.suit===trump.id).length;
   const aces = history.filter(c=>c.rank==="A").map(c=>c.suitFa);
   const voids = [];
+
   for(let i=0;i<history.length;i+=4){
     const trick=history.slice(i,i+4);
     const lead=trick[0]?.suit;
+    const leadFa=suits.find(s=>s.id===lead)?.fa;
     trick.forEach(c=>{
-      if(c.suit!==lead) voids.push(`${c.player}: ${suits.find(s=>s.id===lead).fa}`);
+      if(c.suit!==lead) voids.push(`${c.seat.fa}: ${leadFa}`);
     });
   }
   return {trumpCount, aces:[...new Set(aces)], voids:[...new Set(voids)]};
 }
 
 function renderQuestion(){
-  const q = `
-    <div class="question">
-      <label>تا این لحظه چند کارت حکم خارج شده؟</label>
-      <input id="ansTrump" type="number" inputmode="numeric" min="0" max="13" placeholder="مثلاً ۳" />
+  $("questionBox").innerHTML = `
+    <label>تا این لحظه چند کارت حکم خارج شده؟</label>
+    <input id="ansTrump" type="number" inputmode="numeric" min="0" max="13" placeholder="مثلاً ۳" />
 
-      <label>کدام آس‌ها بازی شده‌اند؟</label>
-      <div class="grid2">
-        ${suits.map(s=>`<label><input type="checkbox" class="aceBox" value="${s.fa}"> آس ${s.fa}</label>`).join("")}
-      </div>
+    <label>کدام آس‌ها بازی شده‌اند؟</label>
+    <div class="grid2">
+      ${suits.map(s=>`<label><span>آس ${s.fa}</span><input type="checkbox" class="aceBox" value="${s.fa}"></label>`).join("")}
+    </div>
 
-      <label>آیا کسی در این دور خال لید را نداشت؟</label>
-      <select id="ansVoid">
-        <option value="unknown">نمی‌دانم / تشخیص ندادم</option>
-        <option value="yes">بله</option>
-        <option value="no">خیر</option>
-      </select>
-    </div>`;
-  $("questionBox").innerHTML=q;
+    <label>آیا کسی در این دور خال لید را نداشت؟</label>
+    <select id="ansVoid">
+      <option value="unknown">نمی‌دانم / تشخیص ندادم</option>
+      <option value="yes">بله</option>
+      <option value="no">خیر</option>
+    </select>
+  `;
 }
 
 function check(){
   const truth=getTruth();
   const ansTrump=Number($("ansTrump").value);
-  const aceAns=[...document.querySelectorAll(".aceBox:checked")].map(x=>x.value);
-  const latest=currentTrick;
-  const lead=latest[0].suit;
-  const latestVoid=latest.some(c=>c.suit!==lead);
+  const aceAns=[...document.querySelectorAll(".aceBox:checked")].map(x=>x.value).sort().join(",");
+  const realAces=truth.aces.sort().join(",");
+  const lead=currentTrick[0].suit;
+  const latestVoid=currentTrick.some(c=>c.suit!==lead);
   const ansVoid=$("ansVoid").value;
 
-  let gained=0;
-  let parts=[];
+  let gained=0, parts=[];
 
-  if(ansTrump===truth.trumpCount){ gained+=3; parts.push(`<span class="ok">✓ شمارش حکم درست بود.</span>`);}
+  if(ansTrump===truth.trumpCount){gained+=3;parts.push(`<span class="ok">✓ شمارش حکم درست بود.</span>`);}
   else parts.push(`<span class="bad">✗ حکم‌های خارج‌شده: ${truth.trumpCount} عدد.</span>`);
 
-  const a1=aceAns.sort().join(",");
-  const a2=truth.aces.sort().join(",");
-  if(a1===a2){ gained+=3; parts.push(`<span class="ok">✓ آس‌ها درست بود.</span>`);}
+  if(aceAns===realAces){gained+=3;parts.push(`<span class="ok">✓ آس‌ها درست بود.</span>`);}
   else parts.push(`<span class="bad">✗ آس‌های بازی‌شده: ${truth.aces.length?truth.aces.join("، "):"هیچ‌کدام"}.</span>`);
 
-  if((ansVoid==="yes" && latestVoid) || (ansVoid==="no" && !latestVoid)){ gained+=2; parts.push(`<span class="ok">✓ تشخیص خال تمام‌شده درست بود.</span>`);}
-  else parts.push(`<span class="bad">✗ در این دور ${latestVoid?"حداقل یک نفر خال لید را نداشت.":"همه خال لید را داشتند."}</span>`);
+  if((ansVoid==="yes" && latestVoid) || (ansVoid==="no" && !latestVoid)){
+    gained+=2;parts.push(`<span class="ok">✓ تشخیص خال تمام‌شده درست بود.</span>`);
+  } else {
+    parts.push(`<span class="bad">✗ در این دور ${latestVoid?"حداقل یک نفر خال لید را نداشت.":"همه خال لید را داشتند."}</span>`);
+  }
 
-  score += gained;
+  score+=gained;
   $("scoreText").textContent=score;
-  $("feedback").innerHTML = `<b>امتیاز این دور: ${gained}/8</b><br>${parts.join("<br>")}`;
+  $("feedback").innerHTML=`<b>امتیاز این دور: ${gained}/8</b><br>${parts.join("<br>")}`;
   renderMemo(true);
   $("checkBtn").disabled=true;
   $("nextBtn").disabled=false;
@@ -148,15 +159,15 @@ function renderMemo(show){
 function endGame(){
   $("cards").innerHTML="";
   $("questionBox").innerHTML=`<p>تمرین تمام شد. امتیاز نهایی: <b>${score} از ۴۰</b></p>
-  <p class="warn">هدف تمرین: اول دقت، بعد سرعت. روزی ۱۰ دست کافی است.</p>`;
+  <p class="warn">هدف: اول دقت، بعد سرعت. روزی ۱۰ دست کافی است.</p>`;
   $("feedback").innerHTML="";
   $("nextBtn").disabled=true;
   $("checkBtn").disabled=true;
 }
 
 $("checkBtn").addEventListener("click", check);
-$("nextBtn").addEventListener("click", ()=>{ round++; nextRound(); });
+$("nextBtn").addEventListener("click", ()=>{round++;nextRound();});
 $("newGameBtn").addEventListener("click", start);
 
-if("serviceWorker" in navigator){ navigator.serviceWorker.register("./sw.js"); }
+if("serviceWorker" in navigator){navigator.serviceWorker.register("./sw.js");}
 start();
